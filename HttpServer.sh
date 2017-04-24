@@ -1,5 +1,5 @@
 #!/bin/sh
-exec scala "$0" "$@"
+exec scala -savecompiled "$0" $@
 !#
 import java.io._
 import java.net.{ServerSocket, Socket}
@@ -16,7 +16,6 @@ import scala.collection._
 object Boot extends Loggable {
 
   def main(args: Array[String]): Unit = {
-
     val port = args.headOption
       .flatMap(arg => Try(arg.toInt).toOption)
       .getOrElse(8080)
@@ -33,14 +32,15 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
   import HttpServer._
 
   def run(): Unit = {
-    info("Client connected")
     val source = Source.fromInputStream(socket.getInputStream, Encoding)
     try {
       val line = source.getLines.next
-      routes(line.split("\\s+").toList)
+
+      val request = line.split("\\s+").toList
+      info(request.mkString("::"))
+      routes(request)
     } finally {
       source.close()
-      socket.close()
     }
   }
 
@@ -98,14 +98,17 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
 
   class Stats extends Page {
     def createPage(): Unit = {
+      
       val info: NodeSeq = HttpServer.StatsInfo.map {
         case (_, imgInfo) =>
           <LI>id: { imgInfo.id }, fileName: { imgInfo.fileName }, views: { imgInfo.views }</LI>
       }.toSeq
+      
       val body = <DIV>
         <H2>Stats</H2>
         <UL>{ info }</UL>
       </DIV>
+      
       generateHtml(
         status = Status(200, "Main page"),
         title = "Main page",
@@ -155,6 +158,7 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
   }
 
   object NotFound extends Page {
+    
     def createPage(): Unit = {
       generateHtml(
         status = Status(404, "Page Not Found"),
@@ -164,6 +168,7 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
   }
 
   class ServerError(e: Exception) extends Page {
+    
     def createPage(): Unit = {
       generateHtml(
         status = Status(500, "Internal Server Error"),
@@ -226,6 +231,5 @@ trait Loggable {
 
 case class Status(code: Int, text: String)
 case class ImgInfo(id: Int, fileName: String, views: Int)
-
 
 Boot.main(args)
