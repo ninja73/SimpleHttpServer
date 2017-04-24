@@ -98,6 +98,7 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
   }
 
   class Stats extends Page {
+
     def createPage(): Unit = {
       
       val info: NodeSeq = HttpServer.StatsInfo.map {
@@ -118,6 +119,7 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
   }
 
   class Image(id: Int) extends Page {
+  	
     def createPage(): Unit = {
       HttpServer.StatsInfo.get(id) match {
         case Some(imgInfo) =>
