@@ -41,6 +41,7 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
       routes(request)
     } finally {
       source.close()
+      socket.close()
     }
   }
 
