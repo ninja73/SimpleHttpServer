@@ -37,7 +37,6 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
     val source = Source.fromInputStream(socket.getInputStream, Encoding)
     try {
       val line = source.getLines.next
-
       routes(line.split("\\s+").toList)
     } finally {
       source.close()
@@ -47,122 +46,134 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
 
   def routes(list: List[String]): Unit = list match {
     case "GET" :: "/stats" :: _ =>
-      statsPage()
+      new Stats().createPage()
     case "GET" :: HttpServer.PathImageByIdParser(id) :: _ =>
-      imageByIdPage(id.toInt)
-    case l =>
-      l.foreach(println(_))
-      pageNotFound()
+      new Image(id.toInt).createPage()
+    case _ =>
+      NotFound.createPage()
   }
 
-  def response(status: Status, contentType: String = "text/html", content: Array[Byte]): Unit = {
-    val out = new BufferedOutputStream(socket.getOutputStream)
+  trait Page {
 
-    val header =
-      s"""
-         |HTTP/1.1 ${status.code} ${status.text}
-         |Server: Scala HTTP Server 1.0
-         |Date: ${new Date()}
-         |Content-type: $contentType
-         |Content-length: ${content.length}
+    def createPage(): Unit
+
+    def response(status: Status, contentType: String = "text/html", content: Array[Byte]): Unit = {
+      val out = new BufferedOutputStream(socket.getOutputStream)
+
+      val header =
+        s"""
+           |HTTP/1.1 ${status.code} ${status.text}
+           |Server: Scala HTTP Server 1.0
+           |Date: ${new Date()}
+           |Content-type: $contentType
+           |Content-length: ${content.length}
       """.stripMargin + LineSep + LineSep
 
-    try {
-      out.write(header.getBytes(Encoding))
-      out.flush()
+      try {
+        out.write(header.getBytes(Encoding))
+        out.flush()
 
-      out.write(content)
-      out.flush()
-    } catch {
-      case e: IOException =>
-        error(e.getMessage)
-        pageServerError(e)
-    } finally {
-      out.close()
+        out.write(content)
+        out.flush()
+      } catch {
+        case e: IOException =>
+          error(e.getMessage)
+          new ServerError(e).createPage()
+      } finally {
+        out.close()
+      }
+    }
+
+    def generateHtml(status: Status, title: String, body: NodeSeq): Unit = {
+      response(
+        status = status,
+        content = Xhtml.toXhtml(
+          <HTML>
+            <HEAD><TITLE>{ title }</TITLE></HEAD>
+            <BODY>{ body }</BODY>
+          </HTML>
+        ).getBytes(Encoding))
     }
   }
 
-  def generateHtml(status: Status, title: String, body: NodeSeq): Unit = {
-    response(
-      status = status,
-      content = Xhtml.toXhtml(
-        <HTML>
-          <HEAD><TITLE>{ title }</TITLE></HEAD>
-          <BODY>{ body }</BODY>
-        </HTML>
-      ).getBytes(Encoding))
-  }
-
-  def statsPage(): Unit = {
-    val info: NodeSeq = HttpServer.StatsInfo.values.map {
-      case ImgInfo(id, fileName, views) =>
-        <LI>id: { id }, fileName: { fileName }, views: { views }</LI>
-    }.toSeq
-    val body = <DIV>
-      <H2>Stats</H2>
-      <UL>{ info }</UL>
-    </DIV>
-    generateHtml(
-      status = Status(200, "Main page"),
-      title = "Main page",
-      body = body)
-  }
-
-  def imageByIdPage(id: Int): Unit = {
-    HttpServer.StatsInfo.get(id) match {
-      case Some(imgInfo) =>
-        val content = getImage(imgInfo.fileName)
-          .map { file =>
-            val outBytes = new ByteArrayOutputStream()
-            BasicIO.transferFully(new FileInputStream(file), outBytes)
-            outBytes.toByteArray
-          }.getOrElse(Array.emptyByteArray)
-        HttpServer.StatsInfo.synchronized {
-          updateView(id)
-        }
-        response(
-          status = Status(200, "Image"),
-          content = content,
-          contentType = "image/jpeg")
-      case None =>
-        pageNotFound()
-    }
-  }
-
-  def getImage(img: String, imagesPath: String = HttpServer.ImagePath): Option[File] = {
-    val file = new File(imagesPath, img)
-    if(file.exists && file.isFile) {
-      Some(file)
-    }
-    else {
-      error("Image file not found")
-      None
-    }
-  }
-
-  def updateView(key: Int): Unit =
-    HttpServer.StatsInfo.get(key) match {
-      case Some(imgInfo) =>
-        HttpServer.StatsInfo.update(key, imgInfo.copy(views = imgInfo.views + 1))
-      case None => error("Image not found in StatsInfo map")
-    }
-
-  def pageNotFound(): Unit = {
-    generateHtml(
-      status = Status(404, "Page Not Found"),
-      title = "Page Not Found",
-      body = <P>404 Page Not Found</P>)
-  }
-
-  def pageServerError(e: Exception): Unit = {
-    generateHtml(
-      status = Status(500, "Internal Server Error"),
-      title = "Internal Server Error",
-      body = <DIV>
-        <H2>500: Internal Server Error</H2>
-        <P>{ e.getMessage }</P>
+  class Stats extends Page {
+    def createPage(): Unit = {
+      val info: NodeSeq = HttpServer.StatsInfo.map {
+        case (_, imgInfo) =>
+          <LI>id: { imgInfo.id }, fileName: { imgInfo.fileName }, views: { imgInfo.views }</LI>
+      }.toSeq
+      val body = <DIV>
+        <H2>Stats</H2>
+        <UL>{ info }</UL>
       </DIV>
-    )
+      generateHtml(
+        status = Status(200, "Main page"),
+        title = "Main page",
+        body = body)
+    }
+  }
+
+  class Image(id: Int) extends Page {
+    def createPage(): Unit = {
+      HttpServer.StatsInfo.get(id) match {
+        case Some(imgInfo) =>
+          val content = getImage(imgInfo.fileName)
+            .map { file =>
+              val outBytes = new ByteArrayOutputStream()
+              BasicIO.transferFully(new FileInputStream(file), outBytes)
+              outBytes.toByteArray
+            }.getOrElse(Array.emptyByteArray)
+
+          updateView(id)
+
+          response(
+            status = Status(200, "Image"),
+            content = content,
+            contentType = "image/jpeg")
+        case None =>
+          NotFound.createPage()
+      }
+    }
+
+    def getImage(img: String, imagesPath: String = HttpServer.ImagePath): Option[File] = {
+      val file = new File(imagesPath, img)
+      if(file.exists && file.isFile) {
+        Some(file)
+      }
+      else {
+        error("Image file not found")
+        None
+      }
+    }
+
+    def updateView(key: Int): Unit =
+      HttpServer.StatsInfo.get(key) match {
+        case Some(imgInfo) =>
+          HttpServer.StatsInfo.update(key, imgInfo.copy(views = imgInfo.views + 1))
+        case None => error("Image not found in StatsInfo map")
+      }
+  }
+
+  object NotFound extends Page {
+    def createPage(): Unit = {
+      generateHtml(
+        status = Status(404, "Page Not Found"),
+        title = "Page Not Found",
+        body = <P>404 Page Not Found</P>)
+    }
+  }
+
+  class ServerError(e: Exception) extends Page {
+    def createPage(): Unit = {
+      generateHtml(
+        status = Status(500, "Internal Server Error"),
+        title = "Internal Server Error",
+        body = <DIV>
+          <H2>500: Internal Server Error</H2>
+          <P>{ e.getMessage }</P>
+        </DIV>
+      )
+    }
   }
 
 }
@@ -177,7 +188,7 @@ object HttpServer extends Loggable {
 
   val ImgIdParser: Regex = "cat([0-9]+).jpg".r
 
-  val StatsInfo: mutable.Map[Int, ImgInfo] = {
+  val StatsInfo: concurrent.TrieMap[Int, ImgInfo] = {
     val imagesInfoMap = new File(ImagePath) match {
       case imageDir if imageDir.exists && imageDir.isDirectory =>
         imageDir.listFiles
@@ -194,7 +205,7 @@ object HttpServer extends Loggable {
         error("Images path not found...")
         Seq.empty[(Int, ImgInfo)]
     }
-    mutable.Map(imagesInfoMap: _*)
+    concurrent.TrieMap(imagesInfoMap: _*)
   }
 
   def apply(socket: Socket): HttpServer =
