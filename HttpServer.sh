@@ -38,20 +38,20 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
 
       val request = line.split("\\s+").toList
       info(request.mkString("::"))
-      routes(request)
+      routes(request).createPage()
     } finally {
       source.close()
       socket.close()
     }
   }
 
-  def routes(list: List[String]): Unit = list match {
+  def routes: List[String] => Page = {
     case "GET" :: "/stats" :: _ =>
-      new Stats().createPage()
+      new Stats()
     case "GET" :: HttpServer.PathImageByIdParser(id) :: _ =>
-      new Image(id.toInt).createPage()
+      new Image(id.toInt)
     case _ =>
-      NotFound.createPage()
+      NotFound
   }
 
   trait Page {
@@ -153,11 +153,16 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
     }
 
     def updateView(key: Int): Unit =
-      HttpServer.StatsInfo.get(key) match {
-        case Some(imgInfo) =>
-          HttpServer.StatsInfo.update(key, imgInfo.copy(views = imgInfo.views + 1))
-        case None => error("Image not found in StatsInfo map")
+      @tailrec def loop(key: Int): Unit = {
+        HttpServer.StatsInfo.get(key) match {
+          case Some(imgInfo) =>
+            if(!HttpServer.StatsInfo.replace(key, imgInfo, imgInfo.copy(views = imgInfo.views + 1)))
+              loop(key)
+          case None =>
+            error("Image file not found")
+        }
       }
+      loop(key)
   }
 
   object NotFound extends Page {
