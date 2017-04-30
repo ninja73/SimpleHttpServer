@@ -23,6 +23,7 @@ object Boot extends Loggable {
     val serverSocket = new ServerSocket(port)
     info(s"Listening for connections on port $port")
 
+    List(1, 2)
     val pool = Executors.newCachedThreadPool()
     while(true) pool.execute(HttpServer(serverSocket.accept))
   }
@@ -152,17 +153,19 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
       }
     }
 
-    def updateView(key: Int): Unit =
-      @tailrec def loop(key: Int): Unit = {
-        HttpServer.StatsInfo.get(key) match {
-          case Some(imgInfo) =>
-            if(!HttpServer.StatsInfo.replace(key, imgInfo, imgInfo.copy(views = imgInfo.views + 1)))
-              loop(key)
-          case None =>
-            error("Image file not found")
-        }
-      }
-      loop(key)
+    def updateView(key: Int): Unit = {
+    	def loop(key: Int): Unit = {
+	        HttpServer.StatsInfo.get(key) match {
+	          case Some(imgInfo) =>
+	            if(!HttpServer.StatsInfo.replace(key, imgInfo, imgInfo.copy(views = imgInfo.views + 1)))
+	              loop(key)
+	          case None =>
+	            error("Image file not found")
+	        }
+    	}
+    	loop(key)
+    } 
+
   }
 
   object NotFound extends Page {
