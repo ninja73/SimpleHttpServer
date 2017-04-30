@@ -6,6 +6,7 @@ import java.net.{ServerSocket, Socket}
 import java.util.Date
 import java.util.concurrent.Executors
 
+import scala.annotation.tailrec
 import scala.io.Source
 import scala.sys.process.BasicIO
 import scala.util.Try
@@ -154,7 +155,7 @@ class HttpServer(socket: Socket) extends Runnable with Loggable {
     }
 
     def updateView(key: Int): Unit = {
-    	def loop(key: Int): Unit = {
+    	@tailrec def loop(key: Int): Unit = {
 	        HttpServer.StatsInfo.get(key) match {
 	          case Some(imgInfo) =>
 	            if(!HttpServer.StatsInfo.replace(key, imgInfo, imgInfo.copy(views = imgInfo.views + 1)))
